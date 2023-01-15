@@ -1,3 +1,8 @@
+use reqwest::{Client, ClientBuilder};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
 use crate::common::{OptionsContract, TradeDirection};
 // TDAMERITRADE
 
@@ -42,7 +47,7 @@ impl OptionsOrderStrategy {
                 quantity: self.quantity,
                 instrument: OptionsInstrument {
                     symbol: self.options_contract_id(),
-                    assetType: "OPTION".to_string(),
+                    asset_type: "OPTION".to_string(),
                 },
             }],
         }
@@ -98,6 +103,7 @@ impl OptionsOrderStrategy {
 
 // TODO add json serializable functionality such as serde_json
 // A Summary can be found here: https://developer.tdameritrade.com/account-access/apis/post/accounts/%7BaccountId%7D/orders-0
+#[derive(Deserialize, Serialize, Debug)]
 pub struct PlaceOrderBody {
     // complicated stuff
     complex_order_strategy_type: String,
@@ -115,6 +121,7 @@ pub struct PlaceOrderBody {
     order_leg_collection: Vec<OrderLeg>,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
 pub struct OrderLeg {
     // instructions depend on asset type
     instruction: String,
@@ -124,9 +131,45 @@ pub struct OrderLeg {
     instrument: OptionsInstrument,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
 pub struct OptionsInstrument {
     // name of the of ticker symbol
     symbol: String,
     // asset type
-    assetType: String,
+    asset_type: String,
+}
+
+// TODO separate the file structure out more
+
+const TD_BASE_URL: &str = "https://api.tdameritrade.com/v1/";
+
+// TODO Place Order starting template
+
+pub async fn place_order(
+    account_id: &str,
+    headers: reqwest::header::HeaderMap,
+    body: PlaceOrderBody,
+) -> Result<()> {
+    // r = re.post(f"https://api.tdameritrade.com/v1/accounts/{accountId}/orders", headers=headers, json=json)
+    // TODO turn this into a util
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
+    let client = ClientBuilder::new()
+        .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+        .build();
+
+    let place_order_url = format!(
+        "{base_url}/accounts/{account_id}/orders",
+        base_url = TD_BASE_URL,
+        account_id = account_id
+    );
+    // TODO re use the same client if this were to become a deamon or server
+    let response = Client::new()
+        .post(place_order_url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await?;
+
+    // error handling
+    Ok(())
 }
